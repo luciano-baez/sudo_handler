@@ -5,8 +5,14 @@ SUDOers Handler  (Ver 0.8 ) (cmd script and Ansible module)
 
 ## Requirements
 ------------
-- For scipting python3
+- For scripting python3
 - For use in your playbooks in ansile, just usual Ansible requirements.
+
+sudo_handler module
+===================
+* This is a python module to handle sudoers files and its includes
+To implement this in a playbook you need to place the file sudo_handler.py in the "library" directory and the sudo_handler_lib.py on "module_utils" directory.
+
 
 Module Functions
 ----------------
@@ -18,6 +24,14 @@ Example get report
   - name: Sudo get report
     sudo_handler:
       state: report
+```
+
+Example get excessive permissions report
+ 
+```yaml
+  - name: Sudo get excessive permissions report
+    sudo_handler:
+      state: report_ep
 ```
 
 Example to declare that we want the /etc/sudoers compliance without the "#includedir" directive
@@ -185,10 +199,33 @@ Example to remove nopasswd from a command in  user_alias.
 
 sudo_handler_cmd command
 =========================
-* This is a python program to handle sudoers files ant its includes
-To implement this in a playbook you need to place the file sudo_handler.py in the library directory and the sudo_handler_lib.py on module_utils directory.
+* This is a python program to handle sudoers files and its includes
+In order to run it i recommned to follow this steps
+    1 - Copy the sudo_handler_cmd.py and the sudo_hndlers_lib.py to a defined dir. Example /opt/scripts
+    2 - create a script called sudo_handler_cmd in the same directory with this content
+```bash
+if [ -f /usr/bin/python3 ]; then 
+        python3  /opt/scripts/sudo_handler_cmd.py $@
+    else
+        echo "ERR: You need python3"
+    fi
+```
+    3 - Create a symbolic link in /usr/bin/, in order to have the script in the path
+```bash
+ln -s /opt/scripts/sudo_handler_cmd /usr/bin/sudo_handler_cmd
+``` 
+
+Then you will be able to run as this
+    sudo_handler_cmd -h
+to see how to use it.
 
 Author Information
 ------------------
 Role and modules developed by Luciano Baez (lucianobaez@kyndryl.com or lucianobaez1@ibm.com), working for the GI-SVC-GBSE team.
+https://github.kyndryl.net/lucianobaez
+https://github.ibm.com/lucianobaez1
+
+
+Personal contact on lucianobaez@outlook.com ( https://github.com/luciano-baez )
+
 

@@ -58,7 +58,7 @@ DOCUMENTATION = '''
 ---
 module: sudo_handler
 
-short_description: Module to handle SUDO (/etc/sudoers) in IBM under Unix/linux platforms
+short_description: Module to handle SUDO (/etc/sudoers) in Kyndryl/IBM under Unix/linux platforms
 
 version_added: "1"
 
@@ -126,7 +126,7 @@ extends_documentation_fragment:
     - To be executed on Jump Host and Ansible TOWER
 
 author:
-    - Luciano Báez (@lucianoabez) on Kyndryl slack and on IBM slack
+    - Luciano Báez (@lucianoabez) on Kyndryl slack and on IBM slack (@lucianoabez1)
 '''
 
 EXAMPLES = '''
@@ -355,7 +355,7 @@ def run_module():
     except KeyError:
         sudo_module_state='report'
 
-    if sudo_module_state != 'report':
+    if sudo_module_state != 'report' and sudo_module_state != 'report_ep':
         #Process when state is present or absent
         # Detects if fixincludedir in order to remove '#includedir' directive
         try:
@@ -492,10 +492,22 @@ def run_module():
         if sudo_module_state == 'report':
             result['changed']=False
             if len(sudo_fact) > 0:
-                result['message']=sudo_fact
+                #result['message']=sudo_fact
+                ModuleExitMessage=sudo_fact
             else:
                 result['failed'] = True
-                result['message']="No SUDO detected."
+                #result['message']="No SUDO detected."
+                ModuleExitMessage="No SUDO detected."
+
+        elif sudo_module_state == 'report_ep':
+            result['changed']=False
+            if len(sudo_fact) > 0:
+                #result['message']=getsudopermissions(sudo_fact,logdic)
+                ModuleExitMessage=getsudopermissions(sudo_fact,logdic)
+            else:
+                result['failed'] = True
+                #result['message']="No SUDO detected."
+                ModuleExitMessage="No SUDO detected."
 
         else:
             #fixing the #includedir directive (not affected if the state is present or absent)
@@ -608,7 +620,7 @@ def run_module():
                         ModuleExitMessage = ModuleExitMessage + rc['stdout'] + CR
 
                     #adding NOPASSWD for user_alias
-                    if sudo_module_user_alias != ""  and sudo_module_cmd != ""  and sudo_module_setnopasswd==True:                        
+                    if sudo_module_user_alias != ""  and  sudo_module_include_file != "" and sudo_module_cmd != ""  and sudo_module_setnopasswd==True:                        
                         rc=addnopasswdtouseraliasattemplate(sudo_module_user_alias,sudo_module_cmd,sudo_module_include_file,sudo_fact,logdic)
                         if rc['rc']==0:
                             result['changed'] = True
@@ -622,7 +634,7 @@ def run_module():
                         ModuleExitMessage = ModuleExitMessage + rc['stdout'] + CR
 
                     #removing NOPASSWD for user_alias
-                    if sudo_module_user_alias != ""  and  sudo_module_include_file != "" and sudo_module_setnopasswd==False:
+                    if sudo_module_user_alias != ""  and  sudo_module_include_file != "" and sudo_module_setnopasswd==False and sudo_module_cmd != "" :
                         rc=removenopasswdtouseraliasattemplate(sudo_module_user_alias,sudo_module_cmd,sudo_module_include_file,sudo_fact,logdic)
                         if rc['rc']==0:
                             result['changed'] = True

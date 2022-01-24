@@ -86,8 +86,9 @@ def execute(cmdtoexecute,sudologdic):
     rc = CmdOut.returncode
     if sudologdic['log']==True:
         logtofile(sudologdic['logfile'],'Excecute cmd '+cmdtoexecute+' rc:'+str(rc)+' (execute)')
-    #stdoutstr=str(stdout, "utf-8")
-    stdoutstr=str(stdout)
+    ##stdoutstr=str(stdout, "utf-8")
+    stdoutstr = stdout.decode('utf-8')
+    #stdoutstr=str(stdout)
     
     #(str(hexlify(b"\x13\x37"), "utf-8"))
     #print (stdoutstr)
@@ -172,6 +173,29 @@ def getgrouplist():
                 line = sourcefh.readline()
             sourcefh.close
     return resultlist
+
+def getuserlistfromgroup(providedgroup):
+    userlist=[]
+    result=[]
+    groupname=providedgroup.replace('%','')
+    groups = grp.getgrall()
+    groupid=0
+    exists=False
+    for group in groups:
+        #print(group)
+        if group[0]==groupname:
+            groupid=group[2]
+            exists=True
+            for user in group[3]:
+                userlist.append(user)
+    if exists==True:
+        users = pwd.getpwall()
+        for user in users:
+            if user[3]==groupid:            
+                userlist.append(user[0])
+    # remove dupleicates
+    result = list(dict.fromkeys(userlist))
+    return result
 
 def getsudocheck(sudologdic):
     sudocheck={'visudo': '','rc': 0}
@@ -282,7 +306,6 @@ def getsudoersincludes(sudologdic):
     AUXINCLUDES['includedirlist']=INCLUDEDIRLIST
     return AUXINCLUDES
 
-
 def processsudofile(sudoalias,sudofile):
     LABELDIC={}
     if os.path.isfile(sudofile):
@@ -349,25 +372,383 @@ def processsudofile(sudoalias,sudofile):
             sudofilehandler.close
     return LABELDIC
 
+
+def processsudofileassign(useralias,sudofile):
+    LABELDIC={}
+    DATADIC={'Host_Alias':'','assigns':'','file':''}
+    #print('user:'+useralias+" file:"+sudofile)
+    if os.path.isfile(sudofile):
+        #Porcess /etc/sudoers file for includes
+        with open(sudofile,"r", errors='replace') as sudofilehandler:
+            sudoline = sudofilehandler.readline().replace('\t', ' ').replace(', ', ',')
+            ln=0
+            stopprocess=0
+            morecontent=0
+            PREVIOUSLABEL=""
+            CURRENTLABEL=""
+            DEFAULTSNUMBER=1
+            while sudoline:
+                #print("Linea: "+sudoline)
+                ln=ln+1
+                labelfind=0
+                firstword=""
+                auxline=sudoline.replace('\n', '').strip().split()
+                if (len(auxline)>0):
+                    firstword=auxline[0].upper()
+                if (len(auxline)>1):
+                    secondword=auxline[1]
+                #print("> "+firstword)
+                if (firstword != ""):
+                    firstwordlist=firstword.upper().split(',')
+                    #if firstword == useralias.upper() :
+                    if useralias.upper() in firstwordlist:
+                        labelfind=1
+                        if (len(auxline)>1):
+                            AUXLABELS=secondword.split("=")
+                            PREVIOUSLABEL=CURRENTLABEL
+                            #CURRENTLABEL=auxline[0]
+                            CURRENTLABEL=useralias
+                            CONTENTS=sudoline.replace('\n', '').strip().split('=')
+                            if ( len(CONTENTS)>1 ):                                
+                                AUXIDS=CONTENTS[0].split()
+                                if len(AUXIDS)>1:
+                                    DATADIC['Host_Alias']=AUXIDS[1]
+                                DATADIC['assigns']=CONTENTS[1]
+                                DATADIC['file']=sudofile
+                                LABELDIC[CURRENTLABEL]=DATADIC
+                                
+                            if (sudoline.replace('\n', '').strip()[-1]=="\\"):
+                                morecontent=1
+                            else:
+                                morecontent=0
+                    else:
+                        # Process non recognized first word
+                        if (morecontent==1):
+                            
+                            try:
+                                DATADIC['assigns']=DATADIC['assigns']+sudoline.replace('\n', '').strip()
+                                #LABELDIC[CURRENTLABEL]=LABELDIC[CURRENTLABEL]+sudoline.replace('\n', '').strip()
+                            except KeyError:
+                                DATADIC['assigns']=sudoline.replace('\n', '').strip()
+                                #LABELDIC[CURRENTLABEL]=sudoline.replace('\n', '').strip()
+                            
+                            if (sudoline.replace('\n', '').strip()[-1]=="\\"):
+                                morecontent=1
+                            else:
+                                morecontent=0
+                sudoline = sudofilehandler.readline().replace('\t', ' ')
+            sudofilehandler.close
+    #print(LABELDIC)
+    #print()
+    return LABELDIC
+
+
+def detectusergroups(sudofile):
+    result={}
+    userlist=[]
+    grouplist=[]
+    if os.path.isfile(sudofile):
+        #Porcess /etc/sudoers file for includes
+        with open(sudofile,"r", errors='replace') as sudofilehandler:
+            sudoline = sudofilehandler.readline().replace('\t', ' ')
+            ln=0
+            stopprocess=0
+            morecontent=0
+            PREVIOUSLABEL=""
+            CURRENTLABEL=""
+            DEFAULTSNUMBER=1
+            while sudoline:
+                #print("Linea: "+sudoline)
+                ln=ln+1
+                labelfind=0
+                firstword=""
+                firstchar=""
+                sudolineprocessed=""
+                if len(sudoline)>0:
+                    sudolineprocessed=sudoline.replace('\n', '').strip()
+                if len(sudolineprocessed)>0:                    
+                    firstchar=sudolineprocessed[0]
+                    auxline=sudolineprocessed.split()
+                    if (len(auxline)>0):
+                        firstword=auxline[0].upper()
+                    
+                    #print("firstchar:"+firstchar+" line:"+sudolineprocessed)
+                    if firstchar != '#':
+                        # A line not commented
+                        if morecontent == 0:
+                            # Process because is not part of previous line
+                            foudequal=sudolineprocessed.find("=")
+                            if foudequal >= 0:
+                                # Found the "=" character in the line
+                                if firstword != "CMND_ALIAS" and firstword != "USER_ALIAS" and firstword != "HOST_ALIAS" and firstword != "DEFAULTS":
+                                    # is not a label definition
+                                    AUXEQUALITY=sudolineprocessed.split("=")
+                                    if len(AUXEQUALITY)==2:
+                                        # Got an assignation
+                                        AUXLABELS=AUXEQUALITY[0].strip().split()
+                                        if len(AUXLABELS)>1:
+                                            usergrouplables=AUXLABELS[0].strip().split(',')
+                                            for ug in usergrouplables:
+                                                ugid=''
+                                                if len(ug)>0:
+                                                    ugid=ug[0]
+                                                    if ugid == '%':
+                                                        grouplist.append(ug)
+                                                    else:
+                                                        userlist.append(ug)
+                                            #print("firstchar:"+firstchar+" line:"+sudolineprocessed)
+                        # Detect if there are more lines 
+                        #print("line:"+sudolineprocessed)
+                        if (sudolineprocessed[-1]=="\\"):
+                            morecontent=1
+                        else:
+                            morecontent=0
+                #
+                sudoline = sudofilehandler.readline().replace('\t', ' ')
+            sudofilehandler.close
+    result={'userlist':userlist,'grouplist':grouplist}
+    return result
+
+def getassignslist(assignstring):
+    result=[]
+    auxstring=assignstring.replace('\n', '').replace('\t', '').replace('\\', '').replace(' ', '')
+    auxstring=auxstring.strip().replace('#', ',#')
+    result=auxstring.split(',')
+    return result
+
 def getsudoersaliases(sudoincludes):
-    SUDOALIASES= {'User_Alias': {},'Host_Alias': {}}
+    sudoaliasfound=[]
+    sudoaliasfoundwithfile=[]
+    tmpassign={}
+    usersandgroups={'userlist':[],'grouplist':[],'aliaslist':[]}
+    uandg={}
+    SUDOALIASES= {'User_Alias': {},'Host_Alias': {},'Cmnd_Alias':{},'Runas_Alias':{},'Defaults':{},'assigns':{}}
     SUDOALIASES['User_Alias']=processsudofile('User_Alias','/etc/sudoers')
     SUDOALIASES['Host_Alias']=processsudofile('Host_Alias','/etc/sudoers')
     SUDOALIASES['Cmnd_Alias']=processsudofile('Cmnd_Alias','/etc/sudoers')
-    SUDOALIASES['Defaults']=processsudofile('Defaults','/etc/sudoers')
+    SUDOALIASES['Runas_Alias']=processsudofile('Runas_Alias','/etc/sudoers')
     
+    SUDOALIASES['Defaults']=processsudofile('Defaults','/etc/sudoers')
+    uandg=detectusergroups('/etc/sudoers')
+    for usr in uandg['userlist']:
+        if usr in SUDOALIASES['User_Alias']:
+            aliasdic={}
+            aliasdic['alias']=usr
+            aliasdic['file']='/etc/sudoers'
+            tmpassign={}
+            tmpassign=processsudofileassign(usr,'/etc/sudoers')
+            #aliasdic['assigns']=processsudofileassign(usr,'/etc/sudoers')
+            aliasdic['assigns']=getassignslist(tmpassign[usr]['assigns'])
+            aliasdic['Host_Alias']=tmpassign[usr]['Host_Alias']
+            usersandgroups['aliaslist'].append(aliasdic)
+            sudoaliasfound.append(usr)
+            sudoaliasfoundwithfile.append('/etc/sudoers')
+        else:    
+            userdic={}
+            userdic['user']=usr
+            userdic['file']='/etc/sudoers'
+            tmpassign={}
+            tmpassign=processsudofileassign(usr,'/etc/sudoers')
+            #userdic['assigns']=processsudofileassign(usr,'/etc/sudoers')
+            userdic['assigns']=getassignslist(tmpassign[usr]['assigns'])
+            userdic['Host_Alias']=tmpassign[usr]['Host_Alias']
+            usersandgroups['userlist'].append(userdic)
+    for grp in uandg['grouplist']:
+        groupdic={}
+        groupdic['group']=grp
+        groupdic['file']='/etc/sudoers'
+        tmpassign={}
+        tmpassign=processsudofileassign(grp,'/etc/sudoers')
+        #groupdic['assigns']=processsudofileassign(grp,'/etc/sudoers')
+        groupdic['assigns']=getassignslist(tmpassign[usr]['assigns'])
+        groupdic['Host_Alias']=tmpassign[usr]['Host_Alias']
+        usersandgroups['grouplist'].append(groupdic)
+        
     for includefile in sudoincludes['includelist']:
         #lists
         #SUDOALIASES['User_Alias']=SUDOALIASES['User_Alias']+processsudofile('User_Alias',includefile)
         #Dictionaries
-
         SUDOALIASES['User_Alias'].update(processsudofile('User_Alias',includefile))
         SUDOALIASES['Host_Alias'].update(processsudofile('Host_Alias',includefile))
         SUDOALIASES['Cmnd_Alias'].update(processsudofile('Cmnd_Alias',includefile))
+        SUDOALIASES['Runas_Alias'].update(processsudofile('Runas_Alias',includefile))
         SUDOALIASES['Defaults'].update(processsudofile('Defaults',includefile))
-        
+        uandg=detectusergroups(includefile)
+        #print(uandg)
+        #print(' ')
+        for usr in uandg['userlist']:
+            if usr in SUDOALIASES['User_Alias']:
+                aliasdic={}
+                aliasdic['alias']=usr
+                aliasdic['file']=includefile                
+                tmpassign={}
+                tmpassign=processsudofileassign(usr,includefile)
+                #aliasdic['assigns']=processsudofileassign(usr,includefile)
+                aliasdic['assigns']=getassignslist(tmpassign[usr]['assigns'])
+                aliasdic['Host_Alias']=tmpassign[usr]['Host_Alias']
 
+                usersandgroups['aliaslist'].append(aliasdic)
+                sudoaliasfound.append(usr)
+                sudoaliasfoundwithfile.append(includefile)
+            else:    
+                userdic={}
+                userdic['user']=usr
+                userdic['file']=includefile
+                tmpassign={}                
+                tmpassign=processsudofileassign(usr,includefile)
+                #print(tmpassign)
+                #userdic['assigns']=processsudofileassign(usr,includefile)
+                userdic['assigns']=getassignslist(tmpassign[usr]['assigns'])
+                userdic['Host_Alias']=tmpassign[usr]['Host_Alias']
+                usersandgroups['userlist'].append(userdic)
+
+        for grp in uandg['grouplist']:
+            groupdic={}
+            groupdic['group']=grp
+            groupdic['file']=includefile
+            tmpassign={}
+            tmpassign=processsudofileassign(grp,includefile)
+            #groupdic['assigns']=processsudofileassign(grp,includefile)
+            groupdic['assigns']=getassignslist(tmpassign[grp]['assigns'])
+            groupdic['Host_Alias']=tmpassign[grp]['Host_Alias']
+            usersandgroups['grouplist'].append(groupdic)    
+    
+    # User aliases
+    pos=0
+    for useraliaskey in SUDOALIASES['User_Alias']:
+        if useraliaskey not in sudoaliasfound:
+            aliasdic={}
+            aliasdic['alias']=useraliaskey
+            aliasdic['file']=sudoaliasfoundwithfile[pos]
+            tmpassign={}
+            tmpassign=processsudofileassign(usr,includefile)
+            #aliasdic['assigns']=processsudofileassign(usr,includefile)
+            aliasdic['assigns']=getassignslist(tmpassign[usr]['assigns'])
+            aliasdic['Host_Alias']=tmpassign[usr]['Host_Alias']
+            usersandgroups['aliaslist'].append(aliasdic)
+        pos=pos+1
+    SUDOALIASES['assigns']=usersandgroups
+    #        SUDOALIASES['assigns'][useraliaskey]=processsudofileassign(useraliaskey,'/etc/sudoers')
+    #        for includefile in sudoincludes['includelist']:
+    #            SUDOALIASES['assigns'][useraliaskey].update(processsudofileassign(useraliaskey,includefile))
     return SUDOALIASES
+
+
+def getsudopermissions(SUDODIC,sudologdic):
+    # Function to detect excessive permissions
+    result={}
+    result={'explisit':[],'potentially':[],'suspicious':[]}
+    ep_explisit=['NOPASSWD:ALL','ALL','(ALL)NOPASSWD:ALL']
+    ep_potentially=[]
+    ep_suspicious=[]
+    #
+    os_grouplist=[]
+    groups = grp.getgrall()
+    for group in groups:
+        os_grouplist.append(group[0])
+    #
+    os_userlist=[]
+    os_userlist.append('ALL')
+    users = pwd.getpwall()
+    for user in users:
+        os_userlist.append(user[0])
+
+    if sudologdic['log']==True:
+        logtofile(sudologdic['logfile'],'Inspecting userz permissions')
+    for userdic in SUDODIC['aliases']['assigns']['userlist']:
+        for cmdassignation in userdic['assigns']:
+            tmprecord={}
+            tmprecord['type']='user'
+            tmprecord['name']=userdic['user']
+            auxuser=userdic['user']
+            tmprecord['groups']=''
+            tmprecord['users']=auxuser
+            tmprecord['assign']=cmdassignation
+            tmprecord['file']=userdic['file']
+            tmprecord['hosts']=userdic['Host_Alias']
+            tmprecord['comment']=''
+            potentially_flag=False
+            if auxuser not in os_userlist:
+                tmprecord['comment']='User not deffined in the system'
+            if cmdassignation.upper() in ep_explisit:
+                result['explisit'].append(tmprecord)
+            elif cmdassignation.upper() in ep_potentially or potentially_flag==True:
+                result['potentially'].append(tmprecord)
+            elif cmdassignation.upper() in ep_suspicious:
+                result['suspicious'].append(tmprecord)
+
+    if sudologdic['log']==True:
+        logtofile(sudologdic['logfile'],'Inspecting groups permissions')
+    for groupdic in SUDODIC['aliases']['assigns']['grouplist']:
+        for cmdassignation in groupdic['assigns']:
+            tmprecord={}
+            tmprecord['type']='group'
+            auxgroup=groupdic['group']
+            tmprecord['name']=auxgroup
+            tmprecord['groups']=auxgroup
+            tmprecord['users']=grp.getgrnam(auxgroup.replace('%',''))[3]
+            tmprecord['assign']=cmdassignation
+            tmprecord['file']=groupdic['file']
+            tmprecord['hosts']=groupdic['Host_Alias']
+            tmprecord['comment']=''
+            potentially_flag=False
+            if auxgroup not in os_grouplist:
+                tmprecord['comment']='Group not deffined in the system'
+            if cmdassignation.upper() in ep_explisit:
+                result['explisit'].append(tmprecord)
+            elif cmdassignation.upper() in ep_potentially or potentially_flag==True:
+                result['potentially'].append(tmprecord)
+            elif cmdassignation.upper() in ep_suspicious:
+                result['suspicious'].append(tmprecord)
+    
+    if sudologdic['log']==True:
+        logtofile(sudologdic['logfile'],'Inspecting user_alias permissions')
+
+    for aliasdic in SUDODIC['aliases']['assigns']['aliaslist']:
+        for cmdassignation in aliasdic['assigns']:
+            auxcomment=''
+            tmprecord={}
+            tmprecord['type']='alias'
+            tmprecord['name']=aliasdic['alias']
+            AUXUSR=SUDODIC['aliases']['User_Alias'][aliasdic['alias']]
+            AUXUSRlist=AUXUSR.strip().split(',')
+            AUXUSERlist=''
+            AUXgrp=''            
+            for userorgroup in AUXUSRlist:
+                AUXSTRING=''
+                if userorgroup.find("%") >=0: 
+                    AUXgrp=AUXgrp+' '+userorgroup.strip()
+                    aul=getuserlistfromgroup(userorgroup.strip())
+                    for usr in aul:                        
+                        if len(AUXSTRING)==0:
+                            AUXSTRING=usr
+                            #print(usr)
+                        else:
+                            AUXSTRING=AUXSTRING+','+usr
+                else:
+                    AUXSTRING=userorgroup.strip()
+                if len(AUXSTRING.strip())>0:
+                    if len(AUXUSERlist)==0:                    
+                        AUXUSERlist=AUXSTRING
+                    else:
+                        AUXUSERlist=AUXUSERlist+','+AUXSTRING
+            tmprecord['groups']=AUXgrp
+            tmprecord['users']=AUXUSERlist
+            tmprecord['assign']=cmdassignation
+            tmprecord['file']=aliasdic['file']
+            tmprecord['hosts']=aliasdic['Host_Alias']
+            if len(AUXgrp)>0:
+                auxcomment='Involve groups: '+AUXgrp.strip()
+            tmprecord['comment']=auxcomment
+            potentially_flag=False
+            if cmdassignation.upper() in ep_explisit:
+                result['explisit'].append(tmprecord)
+            elif cmdassignation.upper() in ep_potentially or potentially_flag==True:
+                result['potentially'].append(tmprecord)
+            elif cmdassignation.upper() in ep_suspicious:
+                result['suspicious'].append(tmprecord)
+    return result 
+
 
 def getsudo_fact(sudologdic):
     SUDODIC= {'installed':False, 'platform': '','binaryinfo': '','check': '','includespath': '','includes': {},'aliases': {}}
@@ -382,8 +763,12 @@ def getsudo_fact(sudologdic):
 
 def getsudoplatform(sudologdic):
     flavor=execute("uname",sudologdic)
-    AUX=str(flavor).strip().split("\n")
-    platform=AUX[0]
+    #check if allways is encoded in "utf-8" .decode("utf-8")
+    straux=str(flavor).replace("\n",'').strip()
+    #AUX=str(flavor).strip().split("\n")
+    #platform=AUX[0]
+    platform=straux
+    #print(platform +"-"+ str(len(platform)))
     return platform
 
 def getsudoinstalled(platform,sudologdic):
@@ -1357,6 +1742,22 @@ def removelabelfromincludeuseralias(sudofile,useralias,label,SUDODICTIONARY,sudo
     else:                
             resultcode=1
         # 1 File does not exsists
+    return resultcode
+
+def getuserlistfromincludeuseralias(sudofile,useralias,SUDODICTIONARY,sudologdic):
+    resultcode={}
+    resultcode['rc']=0
+    resultcode['stdout']=''
+
+
+    rcstdout=["INF: user list extracted (rc=0).",
+            "ERR: File "+sudofile+" doesn't exsists (rc=1).",
+            "ERR: user_alias "+useralias+" directive not present in any file (rc=2).",
+            "ERR: user_alias "+user+" label not present in any file (rc=3).",
+            "WAR: Label "+user+" already there (rc=4).",
+            "ERR: User "+user+" doesn't exsists (rc=5)."
+            ]
+    resultcode['stdout']=rcstdout[resultcode['rc']]
     return resultcode
 
 def addusertoincludeuseralias(sudofile,useralias,user,SUDODICTIONARY,sudologdic):
